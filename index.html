@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CPU Instruction Cycle Simulator — Fetch · Decode · Execute | COA CO5 Micro Project</title>
+  <meta name="description" content="Interactive educational CPU simulator demonstrating the fetch-decode-execute instruction cycle, built with HTML, CSS and vanilla JavaScript.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- 1. Header -->
+  <header class="site-header">
+    <div class="header-inner">
+      <div>
+        <h1>Interactive CPU Instruction Cycle Simulator</h1>
+        <p class="subtitle">Fetch <span class="arrow">→</span> Decode <span class="arrow">→</span> Execute</p>
+      </div>
+      <div class="header-meta">
+        <span class="chip">Subject: Computer Organization &amp; Architecture (COA)</span>
+        <span class="chip">CO5 Micro Project</span>
+        <span class="chip">Sanjivani University, Kopargaon</span>
+        <span class="chip muted">Aditya Malunjkar· 2125UIDM1054 · SY B.Tech CSE</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+
+    <!-- 2. Overview and learning objectives -->
+    <section class="card overview" aria-label="Project overview">
+      <div>
+        <h2>Project Overview</h2>
+        <p>This simulator demonstrates how a processor executes a program one instruction at a time.
+        Every instruction cycle is broken into three visible stages — <strong>Fetch</strong> (bring the
+        instruction from instruction memory into the IR), <strong>Decode</strong> (the Control Unit
+        interprets the opcode and asserts control signals) and <strong>Execute</strong> (the ALU,
+        registers and data memory carry out the operation) — with every register transfer logged
+        step by step.</p>
+      </div>
+      <div>
+        <h3>Learning Objectives</h3>
+        <ul>
+          <li>Trace how PC, MAR, MDR and IR cooperate during an instruction fetch.</li>
+          <li>See how the Control Unit turns an opcode into control signals.</li>
+          <li>Observe ALU operations, data-memory transfers and status-flag updates.</li>
+          <li>Understand sequential PC flow and how JMP / JZ change it.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 5. Instruction execution controls -->
+    <section class="card toolbar" aria-label="Execution controls">
+      <div class="toolbar-row">
+        <div class="control-group run-group">
+          <button type="button" id="btn-run" class="btn btn-run" title="Run until HALT or Pause (also resumes after a pause)">▶ Run</button>
+          <button type="button" id="btn-step-instr" class="btn" title="Complete the current instruction (Fetch + Decode + Execute)">⏭ Step Instruction</button>
+          <button type="button" id="btn-step-stage" class="btn" title="Advance a single stage: Fetch, then Decode, then Execute">⏱ Step Stage</button>
+          <button type="button" id="btn-reset" class="btn btn-danger" title="Restore the initial CPU state and clear execution info">↺ Reset CPU</button>
+        </div>
+        <div class="control-group">
+          <label class="speed-label" for="speed">Speed
+            <input type="range" id="speed" min="0" max="4" value="1" step="1" aria-label="Simulation speed">
+            <span id="speed-label" class="speed-value">Medium</span>
+          </label>
+        </div>
+        <div class="control-group">
+          <span id="status-pill" class="status-pill idle" role="status" aria-live="polite">IDLE</span>
+        </div>
+      </div>
+      <p class="toolbar-help">Run executes until HALT, an error, or Pause. Pause and Step take effect at the
+      next stage boundary. Reset restores the initial PC, registers, memory and flags, and clears the log.</p>
+    </section>
+
+    <div class="layout">
+
+      <!-- LEFT COLUMN -->
+      <div class="col col-left">
+
+        <!-- 4. Program editor with sample program -->
+        <section class="card" aria-label="Program editor">
+          <div class="card-head">
+            <h2>Program</h2>
+            <button type="button" id="btn-edit" class="btn btn-small">✎ Edit Program</button>
+          </div>
+          <div class="sample-row">
+            <label for="sample-select">Load example:</label>
+            <select id="sample-select" aria-label="Load example program"></select>
+          </div>
+          <p id="sample-note" class="sample-note"></p>
+
+          <div id="program-view">
+            <p class="hint">Instruction index · current instruction is highlighted (◀ PC / executing).</p>
+            <ol id="program-list" class="program-list"></ol>
+          </div>
+
+          <div id="program-editor-wrap" hidden>
+            <p class="hint">One instruction per line. Use <code>;</code> for comments. Syntax reference is in the Help section below.</p>
+            <textarea id="program-editor" rows="10" spellcheck="false" aria-label="Program source code"></textarea>
+            <div class="btn-row">
+              <button type="button" id="btn-apply-program" class="btn btn-primary">✓ Apply Program &amp; Reset</button>
+              <button type="button" id="btn-cancel-edit" class="btn">✕ Cancel</button>
+            </div>
+          </div>
+
+          <div id="program-errors" class="error-box" hidden></div>
+        </section>
+
+        <!-- 6. Customization -->
+        <section class="card" aria-label="CPU configuration">
+          <div class="card-head">
+            <h2>CPU Configuration</h2>
+          </div>
+          <p class="hint">Initial state applied on <em>Apply Configuration &amp; Reset</em> (also reloads the program).</p>
+
+          <div class="cfg-grid">
+            <label for="cfg-width">Arithmetic width</label>
+            <div>
+              <select id="cfg-width" aria-label="Arithmetic width">
+                <option value="8" selected>8-bit (two’s complement)</option>
+                <option value="16">16-bit (two’s complement)</option>
+                <option value="unbounded">Unbounded (plain integers)</option>
+              </select>
+              <p id="width-note" class="hint small"></p>
+            </div>
+
+            <label for="cfg-pc">Initial PC<br><span class="hint small">(instruction index)</span></label>
+            <input type="number" id="cfg-pc" value="0" min="0" step="1" aria-label="Initial program counter">
+
+            <label>R0</label><input type="number" id="cfg-r0" value="0" step="1" aria-label="Initial R0 value">
+            <label>R1</label><input type="number" id="cfg-r1" value="0" step="1" aria-label="Initial R1 value">
+            <label>R2</label><input type="number" id="cfg-r2" value="0" step="1" aria-label="Initial R2 value">
+            <label>R3</label><input type="number" id="cfg-r3" value="0" step="1" aria-label="Initial R3 value">
+
+            <label for="cfg-mem">Initial data memory<br><span class="hint small">one per line:<br><code>address = value</code></span></label>
+            <textarea id="cfg-mem" rows="4" spellcheck="false" placeholder="e.g.&#10;40 = 7&#10;41 = -3" aria-label="Initial data memory values"></textarea>
+          </div>
+
+          <div class="btn-row">
+            <button type="button" id="btn-apply-config" class="btn btn-primary">⚙ Apply Configuration &amp; Reset</button>
+          </div>
+          <div id="cfg-errors" class="error-box" hidden></div>
+        </section>
+      </div>
+
+      <!-- CENTER COLUMN -->
+      <div class="col col-center">
+
+        <!-- 3 + 8. CPU architecture block diagram -->
+        <section class="card" aria-label="CPU architecture diagram">
+          <div class="card-head">
+            <h2>CPU Architecture &amp; Data Paths</h2>
+          </div>
+          <div class="diagram-wrap">
+            <svg id="diagram" viewBox="0 0 980 500" role="img" aria-labelledby="diagram-title" xmlns="http://www.w3.org/2000/svg">
+              <title id="diagram-title">Block diagram of the simulated CPU: Control Unit, registers PC, MAR, MDR, IR, general registers R0 to R3, ALU, internal bus, instruction memory and data memory</title>
+              <defs>
+                <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="context-stroke"></path>
+                </marker>
+              </defs>
+
+              <!-- CPU boundary -->
+              <rect id="b-cpu" x="200" y="45" width="580" height="425" rx="14" class="dbox cpu-box"></rect>
+              <text x="490" y="478" text-anchor="middle" class="dlabel big">CPU</text>
+
+              <!-- Control Unit -->
+              <rect id="b-cu" x="330" y="70" width="320" height="60" rx="8" class="dbox cu-box"></rect>
+              <text x="490" y="95" text-anchor="middle" class="dlabel">Control Unit</text>
+              <text x="490" y="113" text-anchor="middle" class="dlabel sub">decodes the IR · drives all control signals</text>
+
+              <!-- Special registers -->
+              <rect id="b-mar" x="225" y="160" width="70" height="48" rx="6" class="dbox"></rect>
+              <text x="260" y="188" text-anchor="middle" class="dlabel">MAR</text>
+              <rect id="b-pc" x="315" y="160" width="70" height="48" rx="6" class="dbox"></rect>
+              <text x="350" y="180" text-anchor="middle" class="dlabel">PC</text>
+              <text x="350" y="196" text-anchor="middle" class="dlabel sub">auto +1</text>
+              <rect id="b-ir" x="405" y="160" width="70" height="48" rx="6" class="dbox"></rect>
+              <text x="440" y="188" text-anchor="middle" class="dlabel">IR</text>
+              <rect id="b-mdr" x="495" y="160" width="70" height="48" rx="6" class="dbox"></rect>
+              <text x="530" y="188" text-anchor="middle" class="dlabel">MDR</text>
+
+              <!-- Register file -->
+              <rect id="b-regs" x="225" y="260" width="250" height="60" rx="8" class="dbox"></rect>
+              <text x="350" y="285" text-anchor="middle" class="dlabel">General-Purpose Registers</text>
+              <text x="350" y="303" text-anchor="middle" class="dlabel sub">R0 · R1 · R2 · R3</text>
+
+              <!-- ALU -->
+              <rect id="b-alu" x="560" y="260" width="200" height="75" rx="8" class="dbox alu-box"></rect>
+              <text x="660" y="290" text-anchor="middle" class="dlabel">ALU</text>
+              <text x="660" y="308" text-anchor="middle" class="dlabel sub">ADD · SUB · MUL · CMP</text>
+              <text x="660" y="324" text-anchor="middle" class="dlabel sub">→ flags Z N C V</text>
+
+              <!-- Instruction memory -->
+              <rect id="b-imem" x="15" y="160" width="140" height="140" rx="10" class="dbox mem-box"></rect>
+              <text x="85" y="222" text-anchor="middle" class="dlabel">Instruction</text>
+              <text x="85" y="240" text-anchor="middle" class="dlabel">Memory</text>
+              <text x="85" y="258" text-anchor="middle" class="dlabel sub">indexed by PC</text>
+
+              <!-- Data memory -->
+              <rect id="b-dmem" x="825" y="160" width="140" height="140" rx="10" class="dbox mem-box"></rect>
+              <text x="895" y="222" text-anchor="middle" class="dlabel">Data</text>
+              <text x="895" y="240" text-anchor="middle" class="dlabel">Memory</text>
+              <text x="895" y="258" text-anchor="middle" class="dlabel sub">addresses 0–255</text>
+
+              <!-- Internal bus -->
+              <line id="p-bus" x1="225" y1="360" x2="755" y2="360" class="dpath bus"></line>
+              <text x="490" y="352" text-anchor="middle" class="dlabel sub">internal bus</text>
+              <line id="p-regs-bus" x1="350" y1="322" x2="350" y2="360" class="dpath"></line>
+              <line id="p-alu-bus" x1="660" y1="337" x2="660" y2="360" class="dpath"></line>
+
+              <!-- Fetch data path -->
+              <line id="p-pc-mar" x1="313" y1="184" x2="299" y2="184" class="dpath" marker-end="url(#arr)"></line>
+              <line id="p-mar-imem" x1="225" y1="184" x2="159" y2="184" class="dpath" marker-end="url(#arr)"></line>
+              <text x="192" y="176" text-anchor="middle" class="dlabel sub">address</text>
+              <polyline id="p-imem-mdr" points="155,226 530,226 530,212" class="dpath" marker-end="url(#arr)"></polyline>
+              <text x="330" y="220" text-anchor="middle" class="dlabel sub">instruction out</text>
+              <line id="p-mdr-ir" x1="493" y1="184" x2="479" y2="184" class="dpath" marker-end="url(#arr)"></line>
+
+              <!-- Decode path -->
+              <line id="p-ir-cu" x1="440" y1="158" x2="440" y2="134" class="dpath" marker-end="url(#arr)"></line>
+
+              <!-- Data-memory paths -->
+              <polyline id="p-mar-dmem" points="260,208 260,244 821,244" class="dpath" marker-end="url(#arr)"></polyline>
+              <text x="540" y="240" text-anchor="middle" class="dlabel sub">address</text>
+              <line id="p-mdr-dmem" x1="567" y1="190" x2="821" y2="190" class="dpath" marker-end="url(#arr)"></line>
+              <text x="694" y="182" text-anchor="middle" class="dlabel sub">data (write)</text>
+              <polyline id="p-dmem-mdr" points="823,216 550,216 550,212" class="dpath" marker-end="url(#arr)"></polyline>
+              <text x="700" y="232" text-anchor="middle" class="dlabel sub">data (read)</text>
+
+              <!-- Register file ↔ ALU -->
+              <line id="p-regs-alu" x1="477" y1="283" x2="556" y2="283" class="dpath" marker-end="url(#arr)"></line>
+              <text x="516" y="276" text-anchor="middle" class="dlabel sub">A, B</text>
+              <line id="p-alu-regs" x1="558" y1="318" x2="479" y2="318" class="dpath" marker-end="url(#arr)"></line>
+              <text x="518" y="333" text-anchor="middle" class="dlabel sub">result</text>
+
+              <!-- Control lines (dashed) -->
+              <line id="p-cu-pc" x1="350" y1="132" x2="350" y2="158" class="dpath ctrl" marker-end="url(#arr)"></line>
+              <line id="p-cu-regs" x1="400" y1="132" x2="400" y2="258" class="dpath ctrl"></line>
+              <line id="p-cu-alu" x1="660" y1="132" x2="660" y2="258" class="dpath ctrl"></line>
+            </svg>
+          </div>
+          <p class="diagram-caption">Solid arrows = data paths (highlighted as they are used). Dashed lines = control signals
+          from the Control Unit. Instruction memory and data memory are deliberately separate so that an
+          <em>instruction fetch</em> is never confused with a <em>data access</em>. This is a simplified educational
+          model — a real processor adds pipelining, caching, microcode and many more registers.</p>
+        </section>
+
+        <!-- 9. Fetch–Decode–Execute stage indicator -->
+        <section class="card" aria-label="Instruction cycle stage indicator">
+          <div class="card-head">
+            <h2>Instruction Cycle Stage</h2>
+          </div>
+          <div class="stage-strip" role="img" aria-label="Current instruction cycle stage">
+            <div id="stage-fetch" class="stage-badge stage-fetch">1 · FETCH<span class="stage-sub">PC → MAR → MDR → IR → PC+1</span></div>
+            <div class="stage-arrow">→</div>
+            <div id="stage-decode" class="stage-badge stage-decode">2 · DECODE<span class="stage-sub">Control Unit reads IR</span></div>
+            <div class="stage-arrow">→</div>
+            <div id="stage-execute" class="stage-badge stage-execute">3 · EXECUTE<span class="stage-sub">ALU · memory · PC update</span></div>
+          </div>
+          <p id="stage-label" class="stage-label" aria-live="polite">Ready — press Run, Step Stage or Step Instruction to begin.</p>
+        </section>
+
+        <!-- 8. Current instruction and instruction pointer / decode detail -->
+        <section class="card" aria-label="Current instruction and decode details">
+          <div class="card-head">
+            <h2>Current Instruction &amp; Decode</h2>
+          </div>
+          <div class="decode-grid">
+            <div class="kv"><span class="kv-k">Opcode</span><span id="decode-opcode" class="kv-v mono">—</span></div>
+            <div class="kv"><span class="kv-k">Operands</span><span id="decode-operands" class="kv-v mono">—</span></div>
+            <div class="kv wide"><span class="kv-k">Operation</span><span id="decode-desc" class="kv-v">Decoding happens after the first Fetch stage.</span></div>
+            <div class="kv wide"><span class="kv-k">Components used</span><span id="decode-components" class="kv-v">—</span></div>
+          </div>
+        </section>
+
+        <!-- 10. ALU visualization -->
+        <section class="card" aria-label="ALU visualization">
+          <div class="card-head">
+            <h2>ALU</h2>
+          </div>
+          <div class="alu-strip" role="img" aria-label="ALU inputs, operation and result">
+            <div class="alu-box"><span class="alu-k">Input A</span><span id="alu-a" class="alu-v mono">—</span></div>
+            <div class="alu-box op"><span class="alu-k">Operation</span><span id="alu-op" class="alu-v">idle</span></div>
+            <div class="alu-box"><span class="alu-k">Input B</span><span id="alu-b" class="alu-v mono">—</span></div>
+            <div class="alu-eq">=</div>
+            <div class="alu-box result"><span class="alu-k">Result</span><span id="alu-result" class="alu-v mono">—</span></div>
+          </div>
+          <p id="alu-flags" class="alu-flags mono"></p>
+          <p id="alu-note" class="hint">The ALU is used by LOAD, ADD, SUB, MUL and CMP.</p>
+        </section>
+
+        <!-- 11. Control Unit and control signals -->
+        <section class="card" aria-label="Control unit and control signals">
+          <div class="card-head">
+            <h2>Control Unit — Control Signals</h2>
+          </div>
+          <p class="hint">Simplified educational representation of the signals the Control Unit asserts for the
+          current instruction (highlighted during the Execute stage).</p>
+          <div id="signals-list" class="signals"><span class="muted">Signals appear here during Decode and Execute.</span></div>
+        </section>
+      </div>
+
+      <!-- RIGHT COLUMN -->
+      <div class="col col-right">
+
+        <!-- 6. CPU register panel + 13. status flags -->
+        <section class="card" aria-label="CPU registers and status flags">
+          <div class="card-head">
+            <h2>Registers</h2>
+          </div>
+          <table class="reg-table special">
+            <tbody>
+              <tr title="Program Counter — index of the next instruction to fetch">
+                <th>PC</th><td id="reg-pc" class="mono">—</td><td class="ctx">instruction index</td>
+              </tr>
+              <tr title="Instruction Register — the instruction currently being executed">
+                <th>IR</th><td id="reg-ir" class="mono">—</td><td class="ctx">fetched instruction</td>
+              </tr>
+              <tr title="Memory Address Register — address currently being accessed (instruction index during fetch, data address otherwise)">
+                <th>MAR</th><td id="reg-mar" class="mono">—</td><td id="reg-mar-ctx" class="ctx"></td>
+              </tr>
+              <tr title="Memory Data Register — data or instruction being transferred to/from memory">
+                <th>MDR</th><td id="reg-mdr" class="mono">—</td><td id="reg-mdr-kind" class="ctx"></td>
+              </tr>
+            </tbody>
+          </table>
+          <table class="reg-table">
+            <thead>
+              <tr><th>Register</th><th>Decimal</th><th>Hex</th><th>Signed</th></tr>
+            </thead>
+            <tbody>
+              <tr id="reg-row-r0" title="General-purpose register R0"><th>R0</th><td id="val-r0" class="mono">0</td><td id="hex-r0" class="mono">—</td><td id="sgn-r0" class="mono">0</td></tr>
+              <tr id="reg-row-r1" title="General-purpose register R1"><th>R1</th><td id="val-r1" class="mono">0</td><td id="hex-r1" class="mono">—</td><td id="sgn-r1" class="mono">0</td></tr>
+              <tr id="reg-row-r2" title="General-purpose register R2"><th>R2</th><td id="val-r2" class="mono">0</td><td id="hex-r2" class="mono">—</td><td id="sgn-r2" class="mono">0</td></tr>
+              <tr id="reg-row-r3" title="General-purpose register R3"><th>R3</th><td id="val-r3" class="mono">0</td><td id="hex-r3" class="mono">—</td><td id="sgn-r3" class="mono">0</td></tr>
+            </tbody>
+          </table>
+          <div class="flags-row" aria-label="Status flags">
+            <span class="flags-title">Flags</span>
+            <span id="flag-z" class="flag unset" title="Zero flag">Z = 0</span>
+            <span id="flag-n" class="flag unset" title="Negative flag">N = 0</span>
+            <span id="flag-c" class="flag unset" title="Carry flag">C = 0</span>
+            <span id="flag-v" class="flag unset" title="Overflow flag">V = 0</span>
+          </div>
+        </section>
+
+        <!-- 7. Main data memory panel -->
+        <section class="card" aria-label="Data memory panel">
+          <div class="card-head">
+            <h2>Data Memory</h2>
+            <span class="muted small">256 addresses (0–255)</span>
+          </div>
+          <p class="hint">Hex values · <span class="swatch nonzero-sw"></span> non-zero ·
+            <span class="swatch write-sw"></span> written · <span class="swatch read-sw"></span> read.
+            Hover a cell for details.</p>
+          <div class="mem-scroll">
+            <div id="mem-grid" class="mem-grid" aria-label="Data memory contents"></div>
+          </div>
+          <p id="mem-hover" class="mono mem-hover">&nbsp;</p>
+        </section>
+      </div>
+    </div>
+
+    <div class="layout layout-bottom">
+
+      <!-- 12. Execution timeline and step-by-step log -->
+      <section class="card" aria-label="Execution log">
+        <div class="card-head">
+          <h2>Execution Log</h2>
+          <button type="button" id="btn-clear-log" class="btn btn-small">🗑 Clear Log</button>
+        </div>
+        <div id="log" class="log" aria-live="polite" aria-label="Step by step execution log"></div>
+      </section>
+
+      <!-- 14. Final program output and execution summary -->
+      <section class="card" aria-label="Execution summary">
+        <div class="card-head">
+          <h2>Execution Summary</h2>
+        </div>
+        <p id="summary-counts"></p>
+        <p id="summary-regs" class="mono small"></p>
+        <p id="summary-mem" class="mono small"></p>
+        <div id="summary-error" class="error-box" hidden></div>
+      </section>
+    </div>
+
+    <!-- 15. Help, instruction reference, and limitations -->
+    <section class="card help" aria-label="Help, instruction set reference and limitations">
+      <h2>Help &amp; Instruction Set Reference</h2>
+
+      <details open>
+        <summary>Instruction set (exact syntax and semantics)</summary>
+        <div class="table-scroll">
+          <table class="isa-table">
+            <thead><tr><th>Instruction</th><th>Example</th><th>Meaning</th><th>Updates flags?</th></tr></thead>
+            <tbody>
+              <tr><td class="mono">LOAD Rd, imm</td><td class="mono">LOAD R0, 10</td><td>Rd ← imm (immediate value)</td><td>No</td></tr>
+              <tr><td class="mono">MOV Rd, Rs</td><td class="mono">MOV R1, R0</td><td>Rd ← Rs (register copy)</td><td>No</td></tr>
+              <tr><td class="mono">ADD Rd, Rs</td><td class="mono">ADD R0, R1</td><td>Rd ← Rd + Rs</td><td>Z, N, C, V</td></tr>
+              <tr><td class="mono">SUB Rd, Rs</td><td class="mono">SUB R0, R1</td><td>Rd ← Rd − Rs</td><td>Z, N, C, V</td></tr>
+              <tr><td class="mono">MUL Rd, Rs</td><td class="mono">MUL R0, R1</td><td>Rd ← Rd × Rs</td><td>Z, N, C, V</td></tr>
+              <tr><td class="mono">STORE Rs, addr</td><td class="mono">STORE R0, 100</td><td>DataMemory[addr] ← Rs</td><td>No</td></tr>
+              <tr><td class="mono">READ Rd, addr</td><td class="mono">READ R0, 100</td><td>Rd ← DataMemory[addr]</td><td>No</td></tr>
+              <tr><td class="mono">JMP target</td><td class="mono">JMP 3</td><td>PC ← target (unconditional)</td><td>No</td></tr>
+              <tr><td class="mono">JZ target</td><td class="mono">JZ 5</td><td>If Z = 1 then PC ← target</td><td>No</td></tr>
+              <tr><td class="mono">CMP Ra, Rb</td><td class="mono">CMP R0, R1</td><td>Flags ← (Ra − Rb); result discarded</td><td>Z, N, C, V</td></tr>
+              <tr><td class="mono">HALT</td><td class="mono">HALT</td><td>Stop execution</td><td>No</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="hint">Registers are R0–R3. Immediates, addresses and jump targets must be integers;
+        addresses are 0–255 and jump targets are valid instruction indexes (0 to N−1). Comments start with <code>;</code>.</p>
+      </details>
+
+      <details>
+        <summary>Flag rules (documented assumptions)</summary>
+        <ul class="spaced">
+          <li><strong>Z</strong> (zero) — set when the ALU result is 0.</li>
+          <li><strong>N</strong> (negative) — set when the ALU result is negative (MSB = 1 in two’s complement).</li>
+          <li><strong>C</strong> (carry) — 8/16-bit modes only. ADD: set when the unsigned sum exceeds the width.
+              SUB/CMP: set when there is <em>no</em> borrow (first operand ≥ second, unsigned). MUL: set when the
+              unsigned product does not fit.</li>
+          <li><strong>V</strong> (overflow) — 8/16-bit modes only. Set when the <em>signed</em> result does not fit
+              in the width (e.g. 100 + 100 = 200 in 8-bit).</li>
+          <li>In <strong>unbounded</strong> mode only Z and N are produced; C and V are shown as “—”.</li>
+          <li>Flags are updated only by ADD, SUB, MUL and CMP. JZ reads the flags but never changes them.</li>
+        </ul>
+      </details>
+
+      <details>
+        <summary>Model assumptions</summary>
+        <ul class="spaced">
+          <li><strong>Harvard-style memory:</strong> instruction memory and data memory are separate. The PC indexes
+              instructions (0 to N−1); data memory has 256 byte-sized cells (addresses 0–255).</li>
+          <li><strong>PC advance:</strong> the PC is incremented during Fetch (step 5); jump instructions overwrite it
+              during Execute.</li>
+          <li><strong>Address units:</strong> one address = one instruction (instruction memory) or one value
+              (data memory). There is no byte-level addressing or word alignment.</li>
+          <li><strong>Cycle:</strong> one instruction cycle = Fetch + Decode + Execute. A “clock cycle” in a real
+              processor is a single hardware timing step — several clock cycles make up one instruction cycle.</li>
+          <li><strong>HALT is counted</strong> as an executed instruction; a program that runs off the end without
+              HALT reports an error instead of halting cleanly.</li>
+          <li><strong>Infinite-loop guard:</strong> execution stops with an error after 10,000 instructions.</li>
+        </ul>
+      </details>
+
+      <details>
+        <summary>How to use / quick start</summary>
+        <ol class="spaced">
+          <li>Pick an example program (or press <em>Edit Program</em> and write your own), then <em>Apply</em>.</li>
+          <li>Press <em>Step Stage</em> three times to watch one full instruction cycle: Fetch, Decode, Execute.</li>
+          <li>Use <em>Step Instruction</em> for whole instructions, <em>Run</em> for continuous execution, and the
+              speed slider to slow things down for your demonstration.</li>
+          <li>Change the arithmetic width, initial PC, register values or memory contents in <em>CPU Configuration</em>.</li>
+          <li>Watch the log, the summary panel and the highlighted data paths in the diagram as the program runs.</li>
+        </ol>
+      </details>
+
+      <details>
+        <summary>Limitations</summary>
+        <ul class="spaced">
+          <li>Simplified single-cycle educational model — no pipelining, caching, microcode, interrupts or I/O.</li>
+          <li>Only 11 instructions and 4 general-purpose registers; no shift/logic operations, no stack, no
+              indexed addressing.</li>
+          <li>Control signals are a simplified textual representation, not a real micro-operation sequence.</li>
+          <li>Instruction memory holds decoded instruction objects, not binary machine code (no assembler encoding).</li>
+        </ul>
+      </details>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>COA–CO5 Micro Project · Computer Organization &amp; Architecture · Sanjivani University, Kopargaon ·
+    Built with HTML5, CSS3 and vanilla JavaScript (no backend, no dependencies).</p>
+  </footer>
+
+  <noscript><p class="error-box">This simulator needs JavaScript enabled to run.</p></noscript>
+  <script src="script.js"></script>
+</body>
+</html>
